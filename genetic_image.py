@@ -9,9 +9,8 @@ from scipy.sparse import csr_matrix
 
 
 class Genetic_Algorithm:
-    def __init__(self, beta, img1, img2, lambda_parameter):
+    def __init__(self, beta, img1, img2):
         self.beta = beta
-        self.lambda_parameter = lambda_parameter
         self.N = img1.shape[0]
         self.M = img2.shape[0]
         self.img1 = img1.flatten()
@@ -20,8 +19,6 @@ class Genetic_Algorithm:
         self.current_kantorovich_u = None
         self.current_kantorovich_v = None
         self.current_cost_vector = None
-        self.child_index = -1
-        self.length_non_zero = 100
 
     def barycentric_distance(self,x, y):
         # mean squared deviation from the classical barycenter of the xi
@@ -83,7 +80,7 @@ class Genetic_Algorithm:
             best_gain = -1
             best_child = None
             samples = 0
-            while gain <= 0 and samples < max_samples and self.child_index < self.length_non_zero - 1:
+            while gain <= 0 and samples < max_samples:
                 child = self.get_child()
                 gain = self.compute_gain(child)
                 if gain > best_gain:
@@ -94,7 +91,6 @@ class Genetic_Algorithm:
             print("samples: ", samples)
             print(self.active_indices.shape)
             self.active_indices = np.vstack((self.active_indices, best_child))
-            self.child_index = -1
             print(self.active_indices.shape)
             self.current_cost_vector = np.append(self.current_cost_vector, self.get_single_cost(best_child))
             self.current_gamma = np.append(self.current_gamma, 0)
@@ -105,15 +101,11 @@ class Genetic_Algorithm:
                 self.current_cost_vector = np.delete(self.current_cost_vector, zero_indices)
                 self.current_gamma = np.delete(self.current_gamma, zero_indices)
 
-    def get_index(self):
-        self.child_index = self.child_index + 1
-        return self.child_index
 
     def get_child(self):
         #take a random index out of the non zero entries of the current gamma
         non_zero_indices = self.active_indices[np.nonzero(self.current_gamma)]
-        self.length_non_zero = len(non_zero_indices)
-        index = self.get_index()
+        index = np.random.randint(0, non_zero_indices.shape[0])
         i, j = non_zero_indices[index]
         parent = np.random.randint(0, 2)
         if parent == 0:
@@ -193,34 +185,36 @@ class Genetic_Algorithm:
 
 
 if __name__ == '__main__':
-    n_pixels = 16
     lambda_parameter = 0.5
     #generate values between 0 and 1
     #load images
     path_img1 = "cat.jpg"
     path_img2 = "dog.jpg"
-    img1 = np.array(Image.open(path_img1).convert('L').resize((n_pixels, n_pixels)))
-    img2 = np.array(Image.open(path_img2).convert('L').resize((n_pixels, n_pixels)))
-    img_coordinates = np.array([[(i, j) for i in range(n_pixels)] for j in range(n_pixels)])
+    img1 = np.array(Image.open(path_img1).convert('L'))
+    #switch black and white
 
-    img_coordinates = img_coordinates.reshape(n_pixels**2, 2)
+    img2 = np.array(Image.open(path_img2).convert('L'))
+
+    img_coordinates = np.array([[(i, j) for i in range(img1.shape[0])] for j in range(img2.shape[0])])
+
+    img_coordinates = img_coordinates.reshape(img1.shape[0]*img2.shape[0], 2)
     normalized_img1 = img1 / np.sum(img1)
     normalized_img2 = img2 / np.sum(img2)
     beta = 4  # hyperparameter
     max_iter = 1000
-    ga = Genetic_Algorithm(beta=beta, img1=normalized_img1, img2=normalized_img2, lambda_parameter=lambda_parameter)
+    ga = Genetic_Algorithm(beta=beta, img1=normalized_img1, img2=normalized_img2)
     ga.run(max_iter, max_samples=5000)
     ga.reduce()
     print("active indices", ga.active_indices)
     print("current cost vector", ga.current_cost_vector)
     print("current gamma", ga.current_gamma.shape)
     #craete a sparse matrix with the current gamma and the active indices
-    sparse_gamma = sp.csr_matrix((ga.current_gamma, (ga.active_indices.transpose()[0], ga.active_indices.transpose()[1])), shape=(n_pixels**2, n_pixels**2))
+    sparse_gamma = sp.csr_matrix((ga.current_gamma, (ga.active_indices.transpose()[0], ga.active_indices.transpose()[1])), shape=(img1.shape[0]**2, img2.shape[0]**2))
     #mean between sparse gamma and a identity matrix
     #rescale gamma
     sparse_gamma = sparse_gamma / np.sum(sparse_gamma)
     barycenter = (sparse_gamma).dot(normalized_img1.flatten())
-    barycenter = barycenter.reshape(n_pixels, n_pixels)
+    barycenter = barycenter.reshape(img1.shape[0], img1.shape[0])
     #create a plot with three images
     fig, axs = plt.subplots(1, 3)
     axs[0].imshow(normalized_img1, cmap='gray')
