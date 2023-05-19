@@ -70,7 +70,6 @@ class Genetic_Algorithm:
         child[random_index] -= 1 / self.N
         # toss a coin to decide where to add 1
         coin = np.random.randint(0, 2, 1)[0]
-        # print("coin: ", coin)
         # either add 1 in the position to the right or to the left of the random position
         if coin == 0:
             if random_index == 0:
@@ -153,6 +152,6 @@ if __name__ == '__main__':
     lambda_star = lambda_star / np.sum(lambda_star)
     max_iter = 10000
     ga = Genetic_Algorithm(N=N, l=l, w=w, beta=beta, lambda_star=lambda_star)
-    ga.run(max_iter, max_samples=30000)
+    ga.run(max_iter=max_iter, max_samples=30000)
     ga.plot()
 
