@@ -4,8 +4,6 @@ from gurobipy import Model, GRB
 from tqdm import tqdm
 from PIL import Image
 import scipy.sparse as sp
-from scipy.sparse import csr_matrix
-
 
 
 class Genetic_Algorithm:
@@ -26,8 +24,9 @@ class Genetic_Algorithm:
         x = x / self.N
         y = y / self.M
         barycenter = x * 0.5 + y * 0.5
-        return 0.5 * np.sum((x - barycenter) ** 2) + 0.5 * np.sum(
+        barycenter = 0.5 * np.sum((x - barycenter) ** 2) + 0.5 * np.sum(
             (y - barycenter) ** 2)
+        return barycenter
 
     def get_cost(self):
         #for each pair of active pixels, compute the cost of moving the first pixel to the second
@@ -73,7 +72,7 @@ class Genetic_Algorithm:
         return np.array(gamma), np.array(omega)
 
     def run(self, max_iter, max_samples=1000):
-        for _ in range(max_iter):
+        for _ in tqdm(range(max_iter)):
             self.solve_RMP()
             self.solve_DRMP()
             gain = -1
@@ -87,11 +86,8 @@ class Genetic_Algorithm:
                     best_gain = gain
                     best_child = child
                 samples += 1
-            print("gain: ", gain)
-            print("samples: ", samples)
-            print(self.active_indices.shape)
             self.active_indices = np.vstack((self.active_indices, best_child))
-            print(self.active_indices.shape)
+
             self.current_cost_vector = np.append(self.current_cost_vector, self.get_single_cost(best_child))
             self.current_gamma = np.append(self.current_gamma, 0)
             if self.active_indices.shape[0] > self.beta*(self.N**2 + self.M**2):
@@ -120,7 +116,7 @@ class Genetic_Algorithm:
 
 
     def solve_RMP(self):
-        print("solving RMP)))))))))))))))))))))))))))")
+
         if self.current_cost_vector is None:
             self.current_cost_vector = self.get_cost()
         mu = self.img1
@@ -148,7 +144,7 @@ class Genetic_Algorithm:
         if model.status == GRB.Status.OPTIMAL:
             self.current_gamma = np.array(
                 [gamma[i].x for i in range(len(self.current_cost_vector))])
-            print('The optimal objective is %g' % model.objVal)
+            #print('The optimal objective is %g' % model.objVal)
         else:
             raise Exception(
                 'The linear programming solver did not find a solution.')
@@ -160,12 +156,17 @@ class Genetic_Algorithm:
         model = Model()
         #suppress output
         model.setParam('OutputFlag', 0)
-        u = model.addVars(self.N**2, vtype=GRB.CONTINUOUS, lb=0)
-        v = model.addVars(self.M**2, vtype=GRB.CONTINUOUS, lb=0)
+        u = model.addVars(self.N**2, vtype=GRB.CONTINUOUS)
+        v = model.addVars(self.M**2, vtype=GRB.CONTINUOUS)
         model.setObjective(sum(mu[i]*u[i] for i in range(self.N)) + sum(nu[j]*v[j] for j in range(self.M)), GRB.MAXIMIZE)
         for index, set in enumerate(self.active_indices):
             i, j = set
             model.addConstr(u[i] + v[j] <= self.current_cost_vector[index])
+        #warm start
+        if self.current_kantorovich_u is not None:
+            model.setAttr('Start', u, self.current_kantorovich_u)
+            model.setAttr('Start', v, self.current_kantorovich_v)
+
         model.optimize()
 
         if model.status == GRB.Status.OPTIMAL:
@@ -188,22 +189,23 @@ if __name__ == '__main__':
     lambda_parameter = 0.5
     #generate values between 0 and 1
     #load images
-    path_img1 = "cat.jpg"
-    path_img2 = "dog.jpg"
+    path_img1 = "dolphin_64.jpg"
+    path_img2 = "star_64.jpg"
     img1 = np.array(Image.open(path_img1).convert('L'))
     #switch black and white
-
     img2 = np.array(Image.open(path_img2).convert('L'))
 
     img_coordinates = np.array([[(i, j) for i in range(img1.shape[0])] for j in range(img2.shape[0])])
 
     img_coordinates = img_coordinates.reshape(img1.shape[0]*img2.shape[0], 2)
-    normalized_img1 = img1 / np.sum(img1)
-    normalized_img2 = img2 / np.sum(img2)
+    normalized_img1 = img1 / 255
+    normalized_img2 = img2 / 255
+    normalized_img1 = normalized_img1 / np.sum(normalized_img1)
+    normalized_img2 = normalized_img2 / np.sum(normalized_img2)
     beta = 4  # hyperparameter
-    max_iter = 1000
+    max_iter = 500
     ga = Genetic_Algorithm(beta=beta, img1=normalized_img1, img2=normalized_img2)
-    ga.run(max_iter, max_samples=5000)
+    ga.run(max_iter, max_samples=500)
     ga.reduce()
     print("active indices", ga.active_indices)
     print("current cost vector", ga.current_cost_vector)
@@ -211,9 +213,10 @@ if __name__ == '__main__':
     #craete a sparse matrix with the current gamma and the active indices
     sparse_gamma = sp.csr_matrix((ga.current_gamma, (ga.active_indices.transpose()[0], ga.active_indices.transpose()[1])), shape=(img1.shape[0]**2, img2.shape[0]**2))
     #mean between sparse gamma and a identity matrix
-    #rescale gamma
-    sparse_gamma = sparse_gamma / np.sum(sparse_gamma)
-    barycenter = (sparse_gamma).dot(normalized_img1.flatten())
+    #create a sparse identity matrix of size N^2 x M^2
+    #sparse_identity = sp.identity(img1.shape[0]**2, format='csr')/ (img1.shape[0]**2)
+    #parse_identity = 0.5*sparse_gamma + 0.5*sparse_identity
+    barycenter = (sparse_gamma.transpose()).dot(normalized_img1.flatten())
     barycenter = barycenter.reshape(img1.shape[0], img1.shape[0])
     #create a plot with three images
     fig, axs = plt.subplots(1, 3)
@@ -224,3 +227,4 @@ if __name__ == '__main__':
     axs[2].imshow(barycenter, cmap='gray')
     axs[2].set_title('Barycenter')
     plt.show()
+
